@@ -1,8 +1,9 @@
 module Main where
 
-import           Graphics.Gloss.Interface.Pure.Game (Color, Display (FullScreen), Event (EventKey), Key (..),
-                                                     KeyState (..), Picture, SpecialKey (..), blue, color, pictures,
-                                                     play, rectangleSolid, translate, white)
+import           Graphics.Gloss.Interface.Environment (getScreenSize)
+import           Graphics.Gloss.Interface.Pure.Game   (Color, Display (FullScreen), Event (EventKey), Key (..),
+                                                       KeyState (..), Picture, SpecialKey (..), blue, color, pictures,
+                                                       play, rectangleSolid, translate, white)
 
 class Initialize a where
   initialize :: a
@@ -10,20 +11,45 @@ class Initialize a where
 class Draw a where
   draw :: a -> Picture
 
+data Area = Area Float Float
+
+newAreaFromIntegrals :: (Int, Int) -> Area
+newAreaFromIntegrals (width, height) = Area (fromIntegral width) (fromIntegral height)
+
 newtype Size = Size Float
 
 data Point = Point Float Float
 
 data Placeholder = Placeholder Point Size
 
+distanceToLeft :: Placeholder -> Area -> Float
+distanceToLeft (Placeholder (Point x _) (Size a)) (Area width _) =
+  width / 2 + x - a / 2
+
+distanceToDown :: Placeholder -> Area -> Float
+distanceToDown (Placeholder (Point _ y) (Size a)) (Area _ height) =
+  height / 2 + y - a / 2
+
+distanceToUp :: Placeholder -> Area -> Float
+distanceToUp (Placeholder (Point _ y) (Size a)) (Area _ height) =
+  height / 2 - y - a / 2
+
+distanceToRight :: Placeholder -> Area -> Float
+distanceToRight (Placeholder (Point x _) (Size a)) (Area width _) =
+  width / 2 - x - a / 2
+
 instance Draw Placeholder where
   draw (Placeholder (Point x y) (Size a)) =
     translate x y $ rectangleSolid a a
 
 newtype Speed = Speed Float
+  deriving (Eq, Ord)
 
-defaultPlayerSpeed :: Speed
-defaultPlayerSpeed = Speed 10
+maxSpeed :: Placeholder -> Area -> Direction -> Speed -> Speed
+maxSpeed placeholder area Direction'Left speed  = min speed $ Speed $ distanceToLeft placeholder area
+maxSpeed placeholder area Direction'Down speed  = min speed $ Speed $ distanceToDown placeholder area
+maxSpeed placeholder area Direction'Up speed    = min speed $ Speed $ distanceToUp placeholder area
+maxSpeed placeholder area Direction'Right speed = min speed $ Speed $ distanceToRight placeholder area
 
 data Direction
   = Direction'Left
@@ -63,13 +89,17 @@ instance Draw Player where
   draw (Player placeholder _) =
     color blue $ draw placeholder
 
-movePlayer :: Player -> Player
-movePlayer (Player (Placeholder point size) (Move direction speed)) =
+defaultPlayerSpeed :: Speed
+defaultPlayerSpeed = Speed 10
+
+movePlayer :: Area -> Player -> Player
+movePlayer area (Player (Placeholder point size) (Move direction speed)) =
   let
-    point' = movePoint direction speed point
+    speed' = maxSpeed (Placeholder point size) area direction speed
+    point' = movePoint direction speed' point
   in
     Player (Placeholder point' size) (Move direction speed)
-movePlayer player = player
+movePlayer _ player = player
 
 updatePlayerToMoveOrStay :: Key -> KeyState -> Player -> Player
 updatePlayerToMoveOrStay key state (Player placeholder move) = Player placeholder $ moveOrStay key state move defaultPlayerSpeed
@@ -78,13 +108,10 @@ updatePlayer :: Event -> Player -> Player
 updatePlayer (EventKey key state _ _) player = updatePlayerToMoveOrStay key state player
 updatePlayer _ player                        = player
 
-data World = World Player
-
-instance Initialize World where
-  initialize = World (initialize::Player)
+data World = World Area Player
 
 instance Draw World where
-  draw (World player) =
+  draw (World _ player) =
     pictures $ [ draw player ]
 
 background :: Color
@@ -94,12 +121,14 @@ frameRate :: Int
 frameRate = 60
 
 update :: Event -> World -> World
-update  event (World player) = World $ updatePlayer event player
+update  event (World area player) = World area $ updatePlayer event player
 
 tick :: Float -> World -> World
-tick _ (World player) = World $ movePlayer player
+tick _ (World area player) = World area $ movePlayer area player
 
 main :: IO ()
-main =
-  play FullScreen background frameRate initialize draw update tick
+main = do
+  area <- newAreaFromIntegrals <$> getScreenSize
+  let world = World area (initialize::Player)
+  play FullScreen background frameRate world draw update tick
 
