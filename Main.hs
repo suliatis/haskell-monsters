@@ -5,9 +5,6 @@ import           Graphics.Gloss.Interface.Pure.Game   (Color, Display (FullScree
                                                        KeyState (..), Picture, SpecialKey (..), blue, color, pictures,
                                                        play, rectangleSolid, translate, white)
 
-class Initialize a where
-  initialize :: a
-
 class Draw a where
   draw :: a -> Picture
 
@@ -82,8 +79,8 @@ moveOrStay _ _ move _                                          = move
 
 data Player = Player Placeholder MoveOrStay
 
-instance Initialize Player where
-  initialize = Player (Placeholder (Point 0 0) (Size 20)) Stay
+initPlayer :: Player
+initPlayer = Player (Placeholder (Point 0 0) (Size 20)) Stay
 
 instance Draw Player where
   draw (Player placeholder _) =
@@ -129,6 +126,6 @@ tick _ (World area player) = World area $ movePlayer area player
 main :: IO ()
 main = do
   area <- newAreaFromIntegrals <$> getScreenSize
-  let world = World area (initialize::Player)
+  let world = World area initPlayer
   play FullScreen background frameRate world draw update tick
 
