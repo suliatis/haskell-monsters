@@ -4,6 +4,9 @@ import           Graphics.Gloss.Interface.Environment (getScreenSize)
 import           Graphics.Gloss.Interface.Pure.Game   (Color, Display (FullScreen), Event (EventKey), Key (..),
                                                        KeyState (..), Picture, SpecialKey (..), blue, color, green,
                                                        pictures, play, rectangleSolid, translate, white)
+import           System.Random                        (Random, random, randomR)
+import           System.Random.Stateful               (getStdGen)
+import System.Random.Stateful (StdGen)
 
 class Draw a where
   draw :: a -> Picture
@@ -16,6 +19,20 @@ newAreaFromIntegrals (width, height) = Area (fromIntegral width) (fromIntegral h
 newtype Size = Size Float
 
 data Point = Point Float Float
+
+instance Random Point where
+  randomR (Point x1 y1, Point x2 y2) g =
+    let
+      (x', g') = randomR (x1, x2) g
+      (y', g'') = randomR (y1, y2) g'
+    in
+      (Point x' y', g'')
+  random g =
+    let
+      (x', g') = random g
+      (y', g'') = random g'
+    in
+      (Point x' y', g'')
 
 data Placeholder = Placeholder Point Size
 
@@ -110,6 +127,13 @@ data Monster = Monster Placeholder
 initMonster :: Monster
 initMonster = Monster (Placeholder (Point 100 100) (Size 20))
 
+spawnMonster :: Area -> StdGen -> (Monster, StdGen)
+spawnMonster (Area width height) g =
+  let
+    (point, g') = randomR (Point (-width/2) (-height/2), Point (width/2) (height/2)) g
+  in
+    (Monster (Placeholder point (Size 20)), g')
+
 instance Draw Monster where
   draw (Monster placeholder) =
     color green $ draw placeholder
@@ -135,6 +159,8 @@ tick _ (World area player monster) = World area (movePlayer area player) monster
 main :: IO ()
 main = do
   area <- newAreaFromIntegrals <$> getScreenSize
-  let world = World area initPlayer initMonster
+  g <- getStdGen
+  let (monster, _) = spawnMonster area g
+  let world = World area initPlayer monster
   play FullScreen background frameRate world draw update tick
 
