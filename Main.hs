@@ -2,8 +2,8 @@ module Main where
 
 import           Graphics.Gloss.Interface.Environment (getScreenSize)
 import           Graphics.Gloss.Interface.Pure.Game   (Color, Display (FullScreen), Event (EventKey), Key (..),
-                                                       KeyState (..), Picture, SpecialKey (..), blue, color, pictures,
-                                                       play, rectangleSolid, translate, white)
+                                                       KeyState (..), Picture, SpecialKey (..), blue, color, green,
+                                                       pictures, play, rectangleSolid, translate, white)
 
 class Draw a where
   draw :: a -> Picture
@@ -105,11 +105,20 @@ updatePlayer :: Event -> Player -> Player
 updatePlayer (EventKey key state _ _) player = updatePlayerToMoveOrStay key state player
 updatePlayer _ player                        = player
 
-data World = World Area Player
+data Monster = Monster Placeholder
+
+initMonster :: Monster
+initMonster = Monster (Placeholder (Point 100 100) (Size 20))
+
+instance Draw Monster where
+  draw (Monster placeholder) =
+    color green $ draw placeholder
+
+data World = World Area Player Monster
 
 instance Draw World where
-  draw (World _ player) =
-    pictures $ [ draw player ]
+  draw (World _ player monster) =
+    pictures $ [ draw player, draw monster ]
 
 background :: Color
 background = white
@@ -118,14 +127,14 @@ frameRate :: Int
 frameRate = 60
 
 update :: Event -> World -> World
-update  event (World area player) = World area $ updatePlayer event player
+update  event (World area player monster) = World area (updatePlayer event player) monster
 
 tick :: Float -> World -> World
-tick _ (World area player) = World area $ movePlayer area player
+tick _ (World area player monster) = World area (movePlayer area player) monster
 
 main :: IO ()
 main = do
   area <- newAreaFromIntegrals <$> getScreenSize
-  let world = World area initPlayer
+  let world = World area initPlayer initMonster
   play FullScreen background frameRate world draw update tick
 
