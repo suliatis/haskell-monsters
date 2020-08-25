@@ -4,7 +4,7 @@ import           Data.Bifunctor                       (first)
 import           Graphics.Gloss.Interface.Environment (getScreenSize)
 import           Graphics.Gloss.Interface.Pure.Game   (Color, Display (FullScreen), Event (EventKey), Key (..),
                                                        KeyState (..), Picture, SpecialKey (..), blue, color, green,
-                                                       pictures, play, rectangleSolid, translate, white)
+                                                       pictures, play, rectangleSolid, red, translate, white)
 import           System.Random                        (Random, random, randomR)
 import           System.Random.Stateful               (StdGen, getStdGen)
 
@@ -34,6 +34,13 @@ instance Random Point where
       (y', g'') = random g'
     in
       (Point x' y', g'')
+
+newtype Distance = Distance Float
+  deriving (Eq, Ord)
+
+distance :: Point -> Point -> Distance
+distance (Point x1 y1) (Point x2 y2) =
+  Distance $ sqrt $ (x1-x2)**2 + (y1-y2)**2
 
 data Placeholder = Placeholder Point Size
 
@@ -142,12 +149,15 @@ updatePlayer _ player                        = player
 
 data WanderOrHunt
   = Wander Point Speed
-  | Hunt
+  | Hunt Speed
 
 data Monster = Monster Placeholder WanderOrHunt
 
 defaultMonsterSpeed :: Speed
 defaultMonsterSpeed = Speed 5
+
+huntingDistance :: Distance
+huntingDistance = Distance 256
 
 spawnMonster :: Area -> StdGen -> (Monster, StdGen)
 spawnMonster area g =
@@ -158,18 +168,37 @@ spawnMonster area g =
   in
     (Monster placeholder (Wander target defaultMonsterSpeed), g'')
 
-moveMonster :: Monster -> Area -> StdGen -> (Monster, StdGen)
-moveMonster (Monster (Placeholder point size) (Wander target speed)) area g =
+close :: Monster -> Player -> Bool
+close (Monster (Placeholder point _) _) (Player (Placeholder target _) _) =
+  distance point target <= huntingDistance
+
+wander :: Monster -> Area -> StdGen -> (Monster, StdGen)
+wander (Monster (Placeholder point size) (Wander target speed)) area g =
   let
     (target', g') = if point == target then first (\(Placeholder t _) -> t) $ placeholderAtRandomPoint size area g else (target, g)
     point' = approximatePointTo speed point target
   in
     (Monster (Placeholder point' size) (Wander target' speed), g')
-moveMonster monster _ g = (monster, g)
+wander (Monster (Placeholder point size) _) area g = wander (Monster (Placeholder point size) (Wander point defaultMonsterSpeed)) area g
+
+hunt :: Monster -> Player -> Monster
+hunt (Monster (Placeholder point size) (Hunt speed)) (Player (Placeholder target _) _) =
+  let
+    point' = approximatePointTo speed point target
+  in
+    Monster (Placeholder point' size) (Hunt speed)
+hunt (Monster placeholder _) player = hunt (Monster placeholder (Hunt defaultMonsterSpeed)) player
+
+moveMonster :: Monster -> Player -> Area -> StdGen -> (Monster, StdGen)
+moveMonster monster player area g =
+  if close monster player then (hunt monster player, g)
+                          else wander monster area g
 
 instance Draw Monster where
-  draw (Monster placeholder _) =
+  draw (Monster placeholder (Wander _ _)) =
     color green $ draw placeholder
+  draw (Monster placeholder (Hunt _)) =
+    color red $ draw placeholder
 
 data World = World StdGen Area Player Monster
 
@@ -190,7 +219,7 @@ tick :: Float -> World -> World
 tick _ (World g area player monster) =
   let
     player' = movePlayer area player
-    (monster', g') = moveMonster monster area g
+    (monster', g') = moveMonster monster player' area g
   in
     World g' area player' monster'
 
