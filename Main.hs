@@ -1,12 +1,12 @@
 module Main where
 
+import           Data.Bifunctor                       (first)
 import           Graphics.Gloss.Interface.Environment (getScreenSize)
 import           Graphics.Gloss.Interface.Pure.Game   (Color, Display (FullScreen), Event (EventKey), Key (..),
                                                        KeyState (..), Picture, SpecialKey (..), blue, color, green,
                                                        pictures, play, rectangleSolid, translate, white)
 import           System.Random                        (Random, random, randomR)
-import           System.Random.Stateful               (getStdGen)
-import System.Random.Stateful (StdGen)
+import           System.Random.Stateful               (StdGen, getStdGen)
 
 class Draw a where
   draw :: a -> Picture
@@ -19,6 +19,7 @@ newAreaFromIntegrals (width, height) = Area (fromIntegral width) (fromIntegral h
 newtype Size = Size Float
 
 data Point = Point Float Float
+  deriving (Eq)
 
 instance Random Point where
   randomR (Point x1 y1, Point x2 y2) g =
@@ -35,6 +36,10 @@ instance Random Point where
       (Point x' y', g'')
 
 data Placeholder = Placeholder Point Size
+
+placeholderAtRandomPoint :: Size -> Area -> StdGen -> (Placeholder, StdGen)
+placeholderAtRandomPoint (Size size) (Area width height) g =
+  first (\p -> Placeholder p (Size size)) $ randomR (Point (-width/2 + size/2) (-height/2 + size/2), Point (width/2 - size/2) (height/2 - size/2)) g
 
 distanceToLeft :: Placeholder -> Area -> Float
 distanceToLeft (Placeholder (Point x _) (Size a)) (Area width _) =
@@ -79,6 +84,19 @@ movePoint direction (Speed speed) (Point x y) =
     Direction'Up    -> Point x (y + speed)
     Direction'Right -> Point (x + speed) y
 
+approximatePointTo :: Speed -> Point -> Point -> Point
+approximatePointTo (Speed speed) (Point x y) (Point toX toY)
+  | x > toX   = movePoint Direction'Left (maxSpeed' x toX) (Point x y)
+  | y > toY   = movePoint Direction'Down (maxSpeed' y toY) (Point x y)
+  | y < toY   = movePoint Direction'Up (maxSpeed' y toY) (Point x y)
+  | x < toX   = movePoint Direction'Right (maxSpeed' x toX) (Point x y)
+  | otherwise = Point x y
+  where
+    maxSpeed' a b
+      | a > 0 && b < 0 = Speed $ min speed $ a + abs b
+      | a < 0 && b > 0 = Speed $ min speed $ abs a + b
+      | otherwise      = Speed $ min speed $ abs (a - b)
+
 data MoveOrStay
   = Move Direction Speed
   | Stay
@@ -122,26 +140,41 @@ updatePlayer :: Event -> Player -> Player
 updatePlayer (EventKey key state _ _) player = updatePlayerToMoveOrStay key state player
 updatePlayer _ player                        = player
 
-data Monster = Monster Placeholder
+data WanderOrHunt
+  = Wander Point Speed
+  | Hunt
 
-initMonster :: Monster
-initMonster = Monster (Placeholder (Point 100 100) (Size 20))
+data Monster = Monster Placeholder WanderOrHunt
+
+defaultMonsterSpeed :: Speed
+defaultMonsterSpeed = Speed 5
 
 spawnMonster :: Area -> StdGen -> (Monster, StdGen)
-spawnMonster (Area width height) g =
+spawnMonster area g =
   let
-    (point, g') = randomR (Point (-width/2) (-height/2), Point (width/2) (height/2)) g
+    size = Size 20
+    (placeholder, g') = placeholderAtRandomPoint size area g
+    (Placeholder target _, g'') = placeholderAtRandomPoint size area g'
   in
-    (Monster (Placeholder point (Size 20)), g')
+    (Monster placeholder (Wander target defaultMonsterSpeed), g'')
+
+moveMonster :: Monster -> Area -> StdGen -> (Monster, StdGen)
+moveMonster (Monster (Placeholder point size) (Wander target speed)) area g =
+  let
+    (target', g') = if point == target then first (\(Placeholder t _) -> t) $ placeholderAtRandomPoint size area g else (target, g)
+    point' = approximatePointTo speed point target
+  in
+    (Monster (Placeholder point' size) (Wander target' speed), g')
+moveMonster monster _ g = (monster, g)
 
 instance Draw Monster where
-  draw (Monster placeholder) =
+  draw (Monster placeholder _) =
     color green $ draw placeholder
 
-data World = World Area Player Monster
+data World = World StdGen Area Player Monster
 
 instance Draw World where
-  draw (World _ player monster) =
+  draw (World _ _ player monster) =
     pictures $ [ draw player, draw monster ]
 
 background :: Color
@@ -151,16 +184,21 @@ frameRate :: Int
 frameRate = 60
 
 update :: Event -> World -> World
-update  event (World area player monster) = World area (updatePlayer event player) monster
+update  event (World g area player monster) = World g area (updatePlayer event player) monster
 
 tick :: Float -> World -> World
-tick _ (World area player monster) = World area (movePlayer area player) monster
+tick _ (World g area player monster) =
+  let
+    player' = movePlayer area player
+    (monster', g') = moveMonster monster area g
+  in
+    World g' area player' monster'
 
 main :: IO ()
 main = do
   area <- newAreaFromIntegrals <$> getScreenSize
   g <- getStdGen
-  let (monster, _) = spawnMonster area g
-  let world = World area initPlayer monster
+  let (monster, g') = spawnMonster area g
+  let world = World g' area initPlayer monster
   play FullScreen background frameRate world draw update tick
 
