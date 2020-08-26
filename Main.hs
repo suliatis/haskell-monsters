@@ -91,8 +91,8 @@ movePoint direction (Speed speed) (Point x y) =
     Direction'Up    -> Point x (y + speed)
     Direction'Right -> Point (x + speed) y
 
-approximatePointTo :: Speed -> Point -> Point -> Point
-approximatePointTo (Speed speed) (Point x y) (Point toX toY)
+approximatePointTo :: Point -> Speed -> Point -> Point
+approximatePointTo (Point x y) (Speed speed) (Point toX toY)
   | x > toX   = movePoint Direction'Left (maxSpeed' x toX) (Point x y)
   | y > toY   = movePoint Direction'Down (maxSpeed' y toY) (Point x y)
   | y < toY   = movePoint Direction'Up (maxSpeed' y toY) (Point x y)
@@ -105,19 +105,19 @@ approximatePointTo (Speed speed) (Point x y) (Point toX toY)
       | otherwise      = Speed $ min speed $ abs (a - b)
 
 data MoveOrStay
-  = Move Direction Speed
+  = Move Direction
   | Stay
 
-moveOrStay :: Key -> KeyState -> MoveOrStay -> Speed -> MoveOrStay
-moveOrStay (SpecialKey KeyLeft) Down _ speed                   = Move Direction'Left speed
-moveOrStay (SpecialKey KeyLeft) Up (Move Direction'Left _) _   = Stay
-moveOrStay (SpecialKey KeyDown) Down _ speed                   = Move Direction'Down speed
-moveOrStay (SpecialKey KeyDown) Up (Move Direction'Down _) _   = Stay
-moveOrStay (SpecialKey KeyUp) Down _ speed                     = Move Direction'Up speed
-moveOrStay (SpecialKey KeyUp) Up (Move Direction'Up _) _       = Stay
-moveOrStay (SpecialKey KeyRight) Down _ speed                  = Move Direction'Right speed
-moveOrStay (SpecialKey KeyRight) Up (Move Direction'Right _) _ = Stay
-moveOrStay _ _ move _                                          = move
+moveOrStay :: Key -> KeyState -> MoveOrStay -> MoveOrStay
+moveOrStay (SpecialKey KeyLeft) Down _                     = Move Direction'Left
+moveOrStay (SpecialKey KeyLeft) Up (Move Direction'Left)   = Stay
+moveOrStay (SpecialKey KeyDown) Down _                     = Move Direction'Down
+moveOrStay (SpecialKey KeyDown) Up (Move Direction'Down)   = Stay
+moveOrStay (SpecialKey KeyUp) Down _                       = Move Direction'Up
+moveOrStay (SpecialKey KeyUp) Up (Move Direction'Up)       = Stay
+moveOrStay (SpecialKey KeyRight) Down _                    = Move Direction'Right
+moveOrStay (SpecialKey KeyRight) Up (Move Direction'Right) = Stay
+moveOrStay _ _ move                                        = move
 
 data Player = Player Placeholder MoveOrStay
 
@@ -132,24 +132,24 @@ defaultPlayerSpeed :: Speed
 defaultPlayerSpeed = Speed 10
 
 movePlayer :: Area -> Player -> Player
-movePlayer area (Player (Placeholder point size) (Move direction speed)) =
+movePlayer area (Player (Placeholder point size) (Move direction)) =
   let
-    speed' = maxSpeed (Placeholder point size) area direction speed
+    speed' = maxSpeed (Placeholder point size) area direction defaultPlayerSpeed
     point' = movePoint direction speed' point
   in
-    Player (Placeholder point' size) (Move direction speed)
+    Player (Placeholder point' size) (Move direction)
 movePlayer _ player = player
 
 updatePlayerToMoveOrStay :: Key -> KeyState -> Player -> Player
-updatePlayerToMoveOrStay key state (Player placeholder move) = Player placeholder $ moveOrStay key state move defaultPlayerSpeed
+updatePlayerToMoveOrStay key state (Player placeholder move) = Player placeholder $ moveOrStay key state move
 
 updatePlayer :: Event -> Player -> Player
 updatePlayer (EventKey key state _ _) player = updatePlayerToMoveOrStay key state player
 updatePlayer _ player                        = player
 
 data WanderOrHunt
-  = Wander Point Speed
-  | Hunt Speed
+  = Wander Point
+  | Hunt
 
 data Monster = Monster Placeholder WanderOrHunt
 
@@ -166,28 +166,28 @@ spawnMonster area g =
     (placeholder, g') = placeholderAtRandomPoint size area g
     (Placeholder target _, g'') = placeholderAtRandomPoint size area g'
   in
-    (Monster placeholder (Wander target defaultMonsterSpeed), g'')
+    (Monster placeholder (Wander target), g'')
 
 close :: Monster -> Player -> Bool
 close (Monster (Placeholder point _) _) (Player (Placeholder target _) _) =
   distance point target <= huntingDistance
 
 wander :: Monster -> Area -> StdGen -> (Monster, StdGen)
-wander (Monster (Placeholder point size) (Wander target speed)) area g =
+wander (Monster (Placeholder point size) (Wander target)) area g =
   let
     (target', g') = if point == target then first (\(Placeholder t _) -> t) $ placeholderAtRandomPoint size area g else (target, g)
-    point' = approximatePointTo speed point target
+    point' = approximatePointTo point defaultMonsterSpeed target
   in
-    (Monster (Placeholder point' size) (Wander target' speed), g')
-wander (Monster (Placeholder point size) _) area g = wander (Monster (Placeholder point size) (Wander point defaultMonsterSpeed)) area g
+    (Monster (Placeholder point' size) (Wander target'), g')
+wander (Monster (Placeholder point size) _) area g = wander (Monster (Placeholder point size) (Wander point)) area g
 
 hunt :: Monster -> Player -> Monster
-hunt (Monster (Placeholder point size) (Hunt speed)) (Player (Placeholder target _) _) =
+hunt (Monster (Placeholder point size) Hunt) (Player (Placeholder target _) _) =
   let
-    point' = approximatePointTo speed point target
+    point' = approximatePointTo point defaultMonsterSpeed target
   in
-    Monster (Placeholder point' size) (Hunt speed)
-hunt (Monster placeholder _) player = hunt (Monster placeholder (Hunt defaultMonsterSpeed)) player
+    Monster (Placeholder point' size) Hunt
+hunt (Monster placeholder _) player = hunt (Monster placeholder Hunt) player
 
 moveMonster :: Monster -> Player -> Area -> StdGen -> (Monster, StdGen)
 moveMonster monster player area g =
@@ -195,9 +195,9 @@ moveMonster monster player area g =
                           else wander monster area g
 
 instance Draw Monster where
-  draw (Monster placeholder (Wander _ _)) =
+  draw (Monster placeholder (Wander _)) =
     color green $ draw placeholder
-  draw (Monster placeholder (Hunt _)) =
+  draw (Monster placeholder Hunt) =
     color red $ draw placeholder
 
 data World = World StdGen Area Player Monster
