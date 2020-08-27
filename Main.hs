@@ -2,7 +2,7 @@ module Main where
 
 import           Data.Bifunctor                       (first)
 import           Graphics.Gloss.Interface.Environment (getScreenSize)
-import           Graphics.Gloss.Interface.Pure.Game   (Color, Display (FullScreen), Event (EventKey), Key (..),
+import           Graphics.Gloss.Interface.Pure.Game   (text, Color, Display (FullScreen), Event (EventKey), Key (..),
                                                        KeyState (..), Picture, SpecialKey (..), blue, color, green,
                                                        pictures, play, rectangleSolid, red, translate, white)
 import           System.Random                        (Random, random, randomR)
@@ -200,11 +200,21 @@ instance Draw Monster where
   draw (Monster placeholder Hunt) =
     color red $ draw placeholder
 
-data World = World StdGen Area Player Monster
+data Scene
+  = Start
+  | Playing Player Monster
+  | GameOver
+
+instance Draw Scene where
+  draw Start = text "Press to start"
+  draw (Playing player monster) = pictures [ draw player, draw monster ]
+  draw GameOver = text "Game Over"
+
+data World = World StdGen Area Scene
 
 instance Draw World where
-  draw (World _ _ player monster) =
-    pictures $ [ draw player, draw monster ]
+  draw (World _ _ scene) =
+    draw scene
 
 background :: Color
 background = white
@@ -213,21 +223,23 @@ frameRate :: Int
 frameRate = 60
 
 update :: Event -> World -> World
-update  event (World g area player monster) = World g area (updatePlayer event player) monster
+update  event (World g area (Playing player monster)) = World g area (Playing (updatePlayer event player) monster)
+update _ world = world
 
 tick :: Float -> World -> World
-tick _ (World g area player monster) =
+tick _ (World g area (Playing player monster)) =
   let
     player' = movePlayer area player
     (monster', g') = moveMonster monster player' area g
   in
-    World g' area player' monster'
+    World g' area (Playing player' monster')
+tick _ world = world
 
 main :: IO ()
 main = do
   area <- newAreaFromIntegrals <$> getScreenSize
   g <- getStdGen
   let (monster, g') = spawnMonster area g
-  let world = World g' area initPlayer monster
+  let world = World g' area (Playing initPlayer monster)
   play FullScreen background frameRate world draw update tick
 
