@@ -172,6 +172,10 @@ close :: Monster -> Player -> Bool
 close (Monster (Placeholder point _) _) (Player (Placeholder target _) _) =
   distance point target <= huntingDistance
 
+catched :: Monster -> Player -> Bool
+catched (Monster (Placeholder point (Size size)) _) (Player (Placeholder target _) _) =
+  distance point target < (Distance $ size / 2)
+
 wander :: Monster -> Area -> StdGen -> (Monster, StdGen)
 wander (Monster (Placeholder point size) (Wander target)) area g =
   let
@@ -201,14 +205,12 @@ instance Draw Monster where
     color red $ draw placeholder
 
 data Scene
-  = Start
-  | Playing Player Monster
+  = Playing Player Monster
   | GameOver
 
 instance Draw Scene where
-  draw Start = text "Press to start"
   draw (Playing player monster) = pictures [ draw player, draw monster ]
-  draw GameOver = text "Game Over"
+  draw GameOver = translate (-350) (-50) $ text "Game Over"
 
 data World = World StdGen Area Scene
 
@@ -232,7 +234,8 @@ tick _ (World g area (Playing player monster)) =
     player' = movePlayer area player
     (monster', g') = moveMonster monster player' area g
   in
-    World g' area (Playing player' monster')
+    if catched monster player then World g area GameOver
+                              else World g' area (Playing player' monster')
 tick _ world = world
 
 main :: IO ()
